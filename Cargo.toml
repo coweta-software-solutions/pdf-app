@@ -1,0 +1,13 @@
+[package]
+name = "pdf-tools-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.8", default-features = false, features = ["tokio", "http1", "multipart"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+pdfium-render = "0.9.1"
+printpdf = { version = "0.9", default-features = false, features = ["png", "jpeg"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "fs", "io-util", "sync"] }
+tower-http = { version = "0.6", default-features = false, features = ["fs"] }
+zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }

@@ -1,0 +1,10 @@
+services:
+  pdf-tools:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      MAX_UPLOAD_MB: "100"
+      MAX_RENDER_PAGES: "100"
+      PDF_TOOLS_CPU_PERMITS: "4"
+    restart: unless-stopped
