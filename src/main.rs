@@ -3,6 +3,7 @@ mod download;
 mod error;
 mod job_store;
 mod jobs;
+mod page_selection;
 mod pdf_ops;
 mod state;
 mod upload;

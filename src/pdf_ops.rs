@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, sync::Arc};
+use std::sync::Arc;
 
 use axum::{
     extract::{Multipart, State},
@@ -8,6 +8,7 @@ use pdfium_render::prelude::{PdfDocument, PdfPageIndex, Pdfium};
 
 use crate::{
     error::{AppError, AppResult},
+    page_selection::PageSelection,
     upload::{is_pdf, read_multipart},
     AppState, FileDownload, ProgressCallback,
 };
@@ -72,7 +73,7 @@ pub async fn split_form(
     if !is_pdf(&file.bytes) {
         return Err(AppError::bad_request("split requires a PDF input"));
     }
-    let pages = parse_page_expr(form.required_field("pages")?)?;
+    let pages = PageSelection::parse(form.required_field("pages")?)?;
 
     report(&progress, 30, "Reading PDF");
     let pdfium = state.pdfium();
@@ -154,7 +155,7 @@ fn extract_pdf_pages(
     let pages = selection.resolve(page_count)?;
 
     for page in &pages {
-        if *page as usize > page_count {
+        if *page > page_count {
             return Err(AppError::bad_request(format!(
                 "page {page} is out of range; PDF has {page_count} pages"
             )));
@@ -175,83 +176,17 @@ fn extract_pdf_pages(
     save_pdf(&output)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum PageSelection {
-    All,
-    Pages(Vec<u32>),
-}
-
-impl PageSelection {
-    fn resolve(self, page_count: usize) -> AppResult<Vec<u32>> {
-        match self {
-            Self::All => (1..=page_count)
-                .map(|page| {
-                    u32::try_from(page).map_err(|_| {
-                        AppError::Internal(format!("invalid PDF page count: {page_count}"))
-                    })
-                })
-                .collect(),
-            Self::Pages(pages) if pages.is_empty() => {
-                Err(AppError::bad_request("no page numbers specified"))
-            }
-            Self::Pages(pages) => Ok(pages),
-        }
-    }
-}
-
 fn pdfium_page_count(count: PdfPageIndex) -> AppResult<usize> {
     usize::try_from(count)
         .map_err(|_| AppError::Internal(format!("invalid PDF page count: {count}")))
 }
 
-fn page_to_index(page: u32) -> AppResult<PdfPageIndex> {
+fn page_to_index(page: usize) -> AppResult<PdfPageIndex> {
     let zero_based = page
         .checked_sub(1)
         .ok_or_else(|| AppError::bad_request("page numbers start at 1"))?;
     PdfPageIndex::try_from(zero_based)
         .map_err(|_| AppError::bad_request(format!("page {page} is out of range")))
-}
-
-fn parse_page_expr(expr: &str) -> AppResult<PageSelection> {
-    let expr = expr.trim();
-    if expr.is_empty() {
-        return Err(AppError::bad_request("pages cannot be empty"));
-    }
-    if expr == "all" {
-        return Ok(PageSelection::All);
-    }
-
-    let mut pages = BTreeSet::new();
-    for part in expr.split(',') {
-        let part = part.trim();
-        if part.is_empty() {
-            return Err(AppError::bad_request("pages contains an empty segment"));
-        }
-
-        if let Some((start, end)) = part.split_once('-') {
-            let start = parse_page(start)?;
-            let end = parse_page(end)?;
-            if start > end {
-                return Err(AppError::bad_request("page ranges must be ascending"));
-            }
-            pages.extend(start..=end);
-        } else {
-            pages.insert(parse_page(part)?);
-        }
-    }
-
-    Ok(PageSelection::Pages(pages.into_iter().collect()))
-}
-
-fn parse_page(value: &str) -> AppResult<u32> {
-    let page = value
-        .parse::<u32>()
-        .map_err(|_| AppError::bad_request(format!("invalid page `{value}`")))?;
-    if page == 0 {
-        Err(AppError::bad_request("page numbers start at 1"))
-    } else {
-        Ok(page)
-    }
 }
 
 fn pdf_response(filename: &str, bytes: Vec<u8>) -> FileDownload {
@@ -325,19 +260,19 @@ mod tests {
 
     #[test]
     fn page_expr_rejects_zero() {
-        assert!(parse_page_expr("0").is_err());
+        assert!(PageSelection::parse("0").is_err());
     }
 
     #[test]
     fn page_expr_expands_and_sorts_ranges() {
         assert_eq!(
-            parse_page_expr("3,1-2").unwrap(),
+            PageSelection::parse("3,1-2").unwrap(),
             PageSelection::Pages(vec![1, 2, 3])
         );
     }
 
     #[test]
     fn page_expr_accepts_all() {
-        assert_eq!(parse_page_expr("all").unwrap(), PageSelection::All);
+        assert_eq!(PageSelection::parse("all").unwrap(), PageSelection::All);
     }
 }

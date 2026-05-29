@@ -11,6 +11,7 @@ use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
 
 use crate::{
     error::{AppError, AppResult},
+    page_selection::PageSelection,
     upload::{is_pdf, is_supported_image, read_multipart, UploadFile},
     AppState, FileDownload, ProgressCallback,
 };
@@ -180,8 +181,8 @@ fn render_pdf_pages(
     let document = pdfium
         .load_pdf_from_byte_vec(bytes, None)
         .map_err(|err| AppError::bad_request(format!("could not read PDF: {err}")))?;
-    let selected_pages =
-        selection.resolve(pdfium_page_count(document.pages().len())?, max_pages)?;
+    let page_count = pdfium_page_count(document.pages().len())?;
+    let selected_pages = resolve_render_pages(selection, page_count, max_pages)?;
     report(
         &progress,
         35,
@@ -238,6 +239,33 @@ fn page_index(page_number: usize) -> AppResult<i32> {
         .ok_or_else(|| AppError::bad_request("page numbers start at 1"))?;
     i32::try_from(zero_based)
         .map_err(|_| AppError::bad_request(format!("page {page_number} is out of range")))
+}
+
+fn resolve_render_pages(
+    selection: PageSelection,
+    page_count: usize,
+    max_pages: usize,
+) -> AppResult<Vec<usize>> {
+    let pages = selection.resolve(page_count)?;
+
+    if pages.is_empty() {
+        return Err(AppError::bad_request("PDF has no pages to render"));
+    }
+
+    if pages.len() > max_pages {
+        return Err(AppError::bad_request(format!(
+            "requested {} pages; limit is {max_pages}",
+            pages.len()
+        )));
+    }
+
+    if let Some(page) = pages.iter().find(|page| **page > page_count) {
+        return Err(AppError::bad_request(format!(
+            "page {page} is out of range; PDF has {page_count} pages"
+        )));
+    }
+
+    Ok(pages)
 }
 
 fn encode_rendered_image(image: image::DynamicImage, format: RasterFormat) -> AppResult<Vec<u8>> {
@@ -357,86 +385,6 @@ fn validate_image_pdf_form(form: &crate::upload::FormData) -> AppResult<()> {
     match form.field("layout").unwrap_or("single") {
         "single" => Ok(()),
         _ => Err(AppError::bad_request("layout must be single")),
-    }
-}
-
-#[derive(Debug, Clone)]
-enum PageSelection {
-    All,
-    Pages(Vec<usize>),
-}
-
-impl PageSelection {
-    fn parse(value: &str) -> AppResult<Self> {
-        let value = value.trim();
-        if value == "all" {
-            return Ok(Self::All);
-        }
-
-        let mut pages = Vec::new();
-        for part in value.split(',') {
-            let part = part.trim();
-            if part.is_empty() {
-                continue;
-            }
-
-            if let Some((start, end)) = part.split_once('-') {
-                let start = parse_page_num(start)?;
-                let end = parse_page_num(end)?;
-                if start > end {
-                    return Err(AppError::bad_request("page ranges must be ascending"));
-                }
-                pages.extend(start..=end);
-            } else {
-                pages.push(parse_page_num(part)?);
-            }
-        }
-
-        pages.sort_unstable();
-        pages.dedup();
-        if pages.is_empty() {
-            Err(AppError::bad_request("pages cannot be empty"))
-        } else {
-            Ok(Self::Pages(pages))
-        }
-    }
-
-    fn resolve(self, page_count: usize, max_pages: usize) -> AppResult<Vec<usize>> {
-        let pages = match self {
-            Self::All => (1..=page_count).collect::<Vec<_>>(),
-            Self::Pages(pages) => pages,
-        };
-
-        if pages.is_empty() {
-            return Err(AppError::bad_request("PDF has no pages to render"));
-        }
-
-        if pages.len() > max_pages {
-            return Err(AppError::bad_request(format!(
-                "requested {} pages; limit is {max_pages}",
-                pages.len()
-            )));
-        }
-
-        if let Some(page) = pages.iter().find(|page| **page > page_count) {
-            return Err(AppError::bad_request(format!(
-                "page {page} is out of range; PDF has {page_count} pages"
-            )));
-        }
-
-        Ok(pages)
-    }
-}
-
-fn parse_page_num(value: &str) -> AppResult<usize> {
-    let page = value
-        .trim()
-        .parse::<usize>()
-        .map_err(|_| AppError::bad_request(format!("invalid page number `{value}`")))?;
-    if page == 0 {
-        Err(AppError::bad_request("page numbers start at 1"))
-    } else {
-        Ok(page)
     }
 }
 
