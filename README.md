@@ -2,12 +2,84 @@
 
 Simple self-hosted PDF tools app with a Rust backend and Svelte SPA frontend.
 
-## Features
+## What It Does
 
-- Image to PDF
-- PDF to image with single page, ranges, or all pages
-- Merge PDFs
-- Split/extract PDF pages
+- Convert PNG or JPEG images into a PDF
+- Export PDF pages as PNG or JPEG images
+- Merge multiple PDFs
+- Extract selected PDF pages into a new PDF
+
+## Quick Start With Docker Compose
+
+```sh
+docker compose up --build
+```
+
+Open `http://localhost:3000`.
+
+The Compose service builds the app image locally, serves the frontend and API from
+one container, and restarts with `unless-stopped`.
+
+## Run With Docker
+
+Use this path if you do not want Docker Compose.
+
+```sh
+cp .env.example .env
+docker build -t pdf-tools .
+docker run --rm -p 3000:3000 --env-file .env pdf-tools
+```
+
+Open `http://localhost:3000`.
+
+The image includes PDFium and sets `PDF_TOOLS_PDFIUM_PATH` for the bundled
+library. If the default configuration is enough, you can omit `--env-file .env`.
+
+## Configuration
+
+```text
+PORT=3000
+MAX_UPLOAD_MB=100
+MAX_RENDER_PAGES=100
+PDF_TOOLS_CPU_PERMITS=4
+PDF_TOOLS_PDFIUM_PATH=/path/to/libpdfium.so
+```
+
+- `PORT`: HTTP port the server listens on.
+- `MAX_UPLOAD_MB`: maximum accepted multipart upload size.
+- `MAX_RENDER_PAGES`: maximum pages rendered from a PDF conversion request.
+- `PDF_TOOLS_CPU_PERMITS`: number of CPU-bound PDF jobs allowed at once. If unset,
+  the app uses `min(host_parallelism, 4)`.
+- `PDF_TOOLS_PDFIUM_PATH`: path to `libpdfium.so`. Docker sets this to the bundled
+  PDFium library. Local non-Docker runs only need it when PDFium is not available
+  on the system library path.
+
+## Build And Run Locally
+
+Copy `.env.example` if you want a local configuration file, or export the
+variables directly in your shell.
+
+Backend:
+
+```sh
+cargo run
+```
+
+If `libpdfium.so` is not on the system library path, set:
+
+```sh
+export PDF_TOOLS_PDFIUM_PATH=/path/to/libpdfium.so
+```
+
+Frontend:
+
+```sh
+cd frontend
+vp install
+vp dev
+```
+
+The frontend dev server proxies API requests to `http://127.0.0.1:3000`.
 
 ## Stack
 
@@ -29,48 +101,19 @@ src/upload.rs      Multipart upload parsing and file validation
 frontend/src/      Svelte UI and browser API client
 ```
 
-## Run With Docker Compose
-
-```sh
-docker compose up --build
-```
-
-Open `http://localhost:3000`.
-
-## Local Development
-
-Copy `.env.example` if you want a local configuration file, or export the
-variables directly in your shell.
-
-Backend:
-
-```sh
-export PDF_TOOLS_PDFIUM_PATH=/path/to/libpdfium.so # optional if libpdfium.so is on the system library path
-cargo run
-```
-
-Frontend:
-
-```sh
-cd frontend
-vp install
-vp dev
-```
-
-The frontend dev server proxies API requests to `http://127.0.0.1:3000`.
-
-## Configuration
+## API
 
 ```text
-PORT=3000
-MAX_UPLOAD_MB=100
-MAX_RENDER_PAGES=100
-PDF_TOOLS_PDFIUM_PATH=/path/to/libpdfium.so
-PDF_TOOLS_CPU_PERMITS=min(host_parallelism, 4)
+GET  /health
+POST /convert
+POST /merge
+POST /split
+POST /jobs
+GET  /jobs/{id}
+GET  /jobs/{id}/download
 ```
 
-`PDF_TOOLS_PDFIUM_PATH` is optional when `libpdfium.so` can be found through the
-system library path. The Docker image includes PDFium and sets this path for you.
+All operation endpoints accept `multipart/form-data` and return a direct download.
 
 ## Checks
 
@@ -86,17 +129,3 @@ vp build
 
 The GitHub Actions workflow in `.github/workflows/ci.yml` runs the same backend
 and frontend checks on pushes and pull requests.
-
-## API
-
-```text
-GET  /health
-POST /convert
-POST /merge
-POST /split
-POST /jobs
-GET  /jobs/{id}
-GET  /jobs/{id}/download
-```
-
-All operation endpoints accept `multipart/form-data` and return a direct download.

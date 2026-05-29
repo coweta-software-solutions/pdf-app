@@ -32,9 +32,11 @@ RUN set -eux; \
 
 FROM debian:bookworm-slim
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
+RUN groupadd --system pdf-tools \
+    && useradd --system --gid pdf-tools --home-dir /app --no-create-home pdf-tools
 COPY --from=backend /app/target/release/pdf-tools-server /usr/local/bin/pdf-tools-server
 COPY --from=pdfium /pdfium/lib/libpdfium.so /usr/local/lib/libpdfium.so
 RUN ldconfig
@@ -42,4 +44,7 @@ COPY --from=frontend /app/frontend/dist ./frontend/dist
 ENV PORT=3000
 ENV PDF_TOOLS_PDFIUM_PATH=/usr/local/lib/libpdfium.so
 EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -fsS "http://127.0.0.1:${PORT:-3000}/health" || exit 1
+USER pdf-tools
 CMD ["pdf-tools-server"]

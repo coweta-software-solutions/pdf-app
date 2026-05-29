@@ -4,3 +4,8 @@ frontend/dist
 .git
 .codex
 .agents
+.DS_Store
+.env
+.env.*
+!.env.example
+*.log
