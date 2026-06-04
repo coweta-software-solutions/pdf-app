@@ -1,48 +1,74 @@
 # PDF Tools
 
-Simple self-hosted PDF tools app with a Rust backend and Svelte SPA frontend.
+Small self-hosted PDF tools app with a Rust backend and Svelte SPA frontend.
+The published container image includes the frontend, API, and PDFium runtime in
+one service.
 
-## What It Does
+## Features
 
 - Convert PNG or JPEG images into a PDF
 - Export PDF pages as PNG or JPEG images
 - Merge multiple PDFs
 - Extract selected PDF pages into a new PDF
 
-## Quick Start With Docker Compose
+## Deploy With Docker Compose
+
+Requirements:
+
+- Docker with the Compose plugin
+- Access to `ghcr.io`
+
+Clone the repository or download `docker-compose.yml`, then start the app:
 
 ```sh
-docker compose up --build
+docker compose up -d
 ```
 
 Open `http://localhost:3000`.
 
-The Compose service builds the app image locally, serves the frontend and API from
-one container, and restarts with `unless-stopped`.
+The default Compose file pulls:
 
-## Run With Docker
-
-Use this path if you do not want Docker Compose.
-
-```sh
-cp .env.example .env
-docker build -t pdf-tools .
-docker run --rm -p 3000:3000 --env-file .env pdf-tools
+```text
+ghcr.io/coweta-software-solutions/pdf-app:latest
 ```
 
-Open `http://localhost:3000`.
+The service runs as a non-root user inside the container and has a built-in
+health check at `/health`.
 
-The image includes PDFium and sets `PDF_TOOLS_PDFIUM_PATH` for the bundled
-library. If the default configuration is enough, you can omit `--env-file .env`.
+## Standalone Compose File
+
+If you do not want to clone the repository, create a `docker-compose.yml` with:
+
+```yaml
+services:
+  pdf-tools:
+    image: ghcr.io/coweta-software-solutions/pdf-app:latest
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
+    environment:
+      PORT: "${PORT:-3000}"
+      MAX_UPLOAD_MB: "${MAX_UPLOAD_MB:-100}"
+      MAX_RENDER_PAGES: "${MAX_RENDER_PAGES:-100}"
+      PDF_TOOLS_CPU_PERMITS: "${PDF_TOOLS_CPU_PERMITS:-4}"
+    restart: unless-stopped
+```
+
+Then run:
+
+```sh
+docker compose up -d
+```
 
 ## Configuration
+
+Copy `.env.example` to `.env` next to `docker-compose.yml` to customize the
+self-hosted container defaults:
 
 ```text
 PORT=3000
 MAX_UPLOAD_MB=100
 MAX_RENDER_PAGES=100
 PDF_TOOLS_CPU_PERMITS=4
-PDF_TOOLS_PDFIUM_PATH=/path/to/libpdfium.so
 ```
 
 - `PORT`: HTTP port the server listens on.
@@ -50,11 +76,60 @@ PDF_TOOLS_PDFIUM_PATH=/path/to/libpdfium.so
 - `MAX_RENDER_PAGES`: maximum pages rendered from a PDF conversion request.
 - `PDF_TOOLS_CPU_PERMITS`: number of CPU-bound PDF jobs allowed at once. If unset,
   the app uses `min(host_parallelism, 4)`.
-- `PDF_TOOLS_PDFIUM_PATH`: path to `libpdfium.so`. Docker sets this to the bundled
-  PDFium library. Local non-Docker runs only need it when PDFium is not available
-  on the system library path.
 
-## Build And Run Locally
+The Docker image bundles PDFium and sets `PDF_TOOLS_PDFIUM_PATH` itself. Local
+non-Docker runs only need `PDF_TOOLS_PDFIUM_PATH` when `libpdfium.so` is not
+available on the system library path.
+
+The app does not require a persistent volume. Jobs and generated downloads are
+kept in memory and are cleared when the container restarts.
+
+## Upgrade
+
+Pull the newest image and restart the service:
+
+```sh
+docker compose pull
+docker compose up -d
+```
+
+## Pin Or Roll Back
+
+For production use, prefer a pinned release tag instead of `latest`:
+
+```yaml
+image: ghcr.io/coweta-software-solutions/pdf-app:v0.1.0
+```
+
+For rollback, replace the image tag with the immutable `sha-<shortsha>` tag from
+the GitHub Actions run or release you want to restore, then run:
+
+```sh
+docker compose pull
+docker compose up -d
+```
+
+## Run With Docker
+
+Use this path if you do not want Docker Compose:
+
+```sh
+docker run --rm -p 3000:3000 ghcr.io/coweta-software-solutions/pdf-app:latest
+```
+
+## Build From Source
+
+Use this path for local source builds or when you do not want to pull the
+published GHCR image:
+
+```sh
+cp .env.example .env
+docker compose -f docker-compose.build.yml up --build
+```
+
+Open `http://localhost:3000`.
+
+## Develop Locally
 
 Copy `.env.example` if you want a local configuration file, or export the
 variables directly in your shell.
@@ -88,25 +163,6 @@ The frontend dev server proxies API requests to `http://127.0.0.1:3000`.
 - PDFium for PDF rendering, merge, and split
 - `image` + `printpdf` for image-to-PDF work
 
-## Project Layout
-
-```text
-src/lib.rs         Axum routes and backend module wiring
-src/main.rs        Server startup
-src/state.rs       Shared app state, config, PDFium binding, CPU worker limiter
-src/job_store.rs   In-memory async job records and downloadable job results
-src/download.rs    Download response formatting
-src/convert.rs     Convert route orchestration
-src/pdf_ops.rs     Merge and split route orchestration
-src/pdf_io.rs      Shared PDFium load/save/page helpers
-src/pdf_merge.rs   PDF merge pipeline
-src/pdf_split.rs   PDF split pipeline
-src/pdf_render.rs  PDF-to-image rendering and ZIP packaging
-src/image_pdf.rs   Image-to-PDF pipeline
-src/upload.rs      Multipart upload parsing and file validation
-frontend/src/      Svelte UI and browser API client
-```
-
 ## API
 
 ```text
@@ -134,4 +190,12 @@ vp build
 ```
 
 The GitHub Actions workflow in `.github/workflows/ci.yml` runs the same backend
-and frontend checks on pushes and pull requests.
+and frontend checks on pushes and pull requests. The workflow in
+`.github/workflows/container.yml` publishes multi-architecture images to GHCR on
+pushes to `main` or `master`, version tags such as `v0.1.0`, and manual runs.
+
+## Maintainer Release Notes
+
+After the first GHCR publish, the package may need to be marked public in the
+GitHub package settings if repository/package visibility does not already expose
+it.

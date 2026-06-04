@@ -1,6 +1,7 @@
 services:
   pdf-tools:
-    image: ghcr.io/coweta-software-solutions/pdf-app:latest
+    build: .
+    image: pdf-tools:local
     ports:
       - "${PORT:-3000}:${PORT:-3000}"
     environment:
