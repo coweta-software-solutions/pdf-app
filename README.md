@@ -91,12 +91,18 @@ The frontend dev server proxies API requests to `http://127.0.0.1:3000`.
 ## Project Layout
 
 ```text
-src/main.rs        Axum routes and server startup
+src/lib.rs         Axum routes and backend module wiring
+src/main.rs        Server startup
 src/state.rs       Shared app state, config, PDFium binding, CPU worker limiter
 src/job_store.rs   In-memory async job records and downloadable job results
 src/download.rs    Download response formatting
-src/convert.rs     Image/PDF conversion operations
-src/pdf_ops.rs     PDF merge and split operations
+src/convert.rs     Convert route orchestration
+src/pdf_ops.rs     Merge and split route orchestration
+src/pdf_io.rs      Shared PDFium load/save/page helpers
+src/pdf_merge.rs   PDF merge pipeline
+src/pdf_split.rs   PDF split pipeline
+src/pdf_render.rs  PDF-to-image rendering and ZIP packaging
+src/image_pdf.rs   Image-to-PDF pipeline
 src/upload.rs      Multipart upload parsing and file validation
 frontend/src/      Svelte UI and browser API client
 ```

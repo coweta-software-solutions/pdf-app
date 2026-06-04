@@ -90,7 +90,39 @@ mod tests {
     }
 
     #[test]
+    fn page_expr_trims_whitespace_inside_segments() {
+        assert_eq!(
+            PageSelection::parse(" 1, 3 - 4 ").unwrap(),
+            PageSelection::Pages(vec![1, 3, 4])
+        );
+    }
+
+    #[test]
+    fn page_expr_deduplicates_and_sorts_pages() {
+        assert_eq!(
+            PageSelection::parse("2,1,2").unwrap(),
+            PageSelection::Pages(vec![1, 2])
+        );
+    }
+
+    #[test]
+    fn page_expr_rejects_descending_ranges_and_invalid_tokens() {
+        assert!(PageSelection::parse("3-1").is_err());
+        assert!(PageSelection::parse("abc").is_err());
+    }
+
+    #[test]
     fn page_expr_accepts_all() {
         assert_eq!(PageSelection::parse("all").unwrap(), PageSelection::All);
+    }
+
+    #[test]
+    fn page_expr_all_is_lowercase_only() {
+        assert!(PageSelection::parse("ALL").is_err());
+    }
+
+    #[test]
+    fn all_resolves_to_empty_for_empty_documents() {
+        assert_eq!(PageSelection::All.resolve(0).unwrap(), Vec::<usize>::new());
     }
 }

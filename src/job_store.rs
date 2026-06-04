@@ -38,7 +38,7 @@ pub struct JobSnapshot {
 }
 
 struct JobRecord {
-    status: String,
+    status: JobStatus,
     percent: u8,
     stage: String,
     filename: Option<String>,
@@ -46,6 +46,25 @@ struct JobRecord {
     bytes: Option<Vec<u8>>,
     error: Option<String>,
     terminal_at: Option<Instant>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum JobStatus {
+    Queued,
+    Running,
+    Done,
+    Error,
+}
+
+impl JobStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Running => "running",
+            Self::Done => "done",
+            Self::Error => "error",
+        }
+    }
 }
 
 impl JobStore {
@@ -57,7 +76,7 @@ impl JobStore {
         records.insert(
             id.clone(),
             JobRecord {
-                status: "queued".to_string(),
+                status: JobStatus::Queued,
                 percent: 0,
                 stage: "Waiting to start".to_string(),
                 filename: None,
@@ -77,7 +96,7 @@ impl JobStore {
             .expect("job store lock poisoned")
             .get_mut(id)
         {
-            job.status = "running".to_string();
+            job.status = JobStatus::Running;
             job.percent = percent.min(99);
             job.stage = stage.into();
         }
@@ -87,7 +106,7 @@ impl JobStore {
         let now = Instant::now();
         let mut records = self.records.lock().expect("job store lock poisoned");
         if let Some(job) = records.get_mut(id) {
-            job.status = "done".to_string();
+            job.status = JobStatus::Done;
             job.percent = 100;
             job.stage = "Ready to download".to_string();
             job.filename = Some(file.filename);
@@ -103,7 +122,7 @@ impl JobStore {
         let now = Instant::now();
         let mut records = self.records.lock().expect("job store lock poisoned");
         if let Some(job) = records.get_mut(id) {
-            job.status = "error".to_string();
+            job.status = JobStatus::Error;
             job.percent = 100;
             job.stage = "Could not finish".to_string();
             job.error = Some(message.into());
@@ -118,7 +137,7 @@ impl JobStore {
         prune_records(&mut records, Instant::now());
         let job = records.get(id)?;
         Some(JobSnapshot {
-            status: job.status.clone(),
+            status: job.status.as_str().to_string(),
             percent: job.percent,
             stage: job.stage.clone(),
             filename: job.filename.clone(),
@@ -177,6 +196,37 @@ mod tests {
     }
 
     #[test]
+    fn snapshots_preserve_serialized_status_values() {
+        let store = JobStore::default();
+
+        let queued_id = store.create();
+        assert_eq!(store.snapshot(&queued_id).unwrap().status, "queued");
+
+        store.update(&queued_id, 50, "Working");
+        assert_eq!(store.snapshot(&queued_id).unwrap().status, "running");
+
+        store.complete(&queued_id, download(b"pdf"));
+        assert_eq!(store.snapshot(&queued_id).unwrap().status, "done");
+
+        let failed_id = store.create();
+        store.fail(&failed_id, "failed");
+        assert_eq!(store.snapshot(&failed_id).unwrap().status, "error");
+    }
+
+    #[test]
+    fn update_clamps_running_percent_to_99() {
+        let store = JobStore::default();
+        let id = store.create();
+
+        store.update(&id, 250, "Almost done");
+
+        let snapshot = store.snapshot(&id).unwrap();
+        assert_eq!(snapshot.status, "running");
+        assert_eq!(snapshot.percent, 99);
+        assert_eq!(snapshot.stage, "Almost done");
+    }
+
+    #[test]
     fn download_consumes_job_record() {
         let store = JobStore::default();
         let id = store.create();
@@ -185,6 +235,31 @@ mod tests {
         assert_eq!(store.download(&id).unwrap().bytes, b"pdf");
         assert!(store.snapshot(&id).is_none());
         assert!(store.download(&id).is_none());
+    }
+
+    #[test]
+    fn download_returns_none_for_missing_pending_and_failed_jobs() {
+        let store = JobStore::default();
+
+        assert!(store.download("missing").is_none());
+
+        let pending_id = store.create();
+        assert!(store.download(&pending_id).is_none());
+
+        let failed_id = store.create();
+        store.complete(&failed_id, download(b"pdf"));
+        store.fail(&failed_id, "failed");
+        assert!(store.download(&failed_id).is_none());
+    }
+
+    #[test]
+    fn completing_or_failing_missing_jobs_does_not_panic() {
+        let store = JobStore::default();
+
+        store.complete("missing", download(b"pdf"));
+        store.fail("missing", "failed");
+
+        assert!(store.snapshot("missing").is_none());
     }
 
     #[test]

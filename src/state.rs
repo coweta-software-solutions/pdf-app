@@ -57,6 +57,16 @@ impl AppState {
     pub fn pdfium(&self) -> Arc<Pdfium> {
         self.pdfium.clone()
     }
+
+    #[doc(hidden)]
+    pub fn for_tests(pdfium: Arc<Pdfium>) -> Self {
+        Self {
+            cpu: Arc::new(Semaphore::new(1)),
+            pdfium,
+            max_render_pages: 100,
+            jobs: JobStore::default(),
+        }
+    }
 }
 
 pub fn read_env_usize(name: &str, default: usize) -> usize {

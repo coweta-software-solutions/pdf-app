@@ -895,6 +895,7 @@ dependencies = [
  "pdfium-render",
  "printpdf",
  "tokio",
+ "tower",
  "tower-http",
  "zip",
 ]
